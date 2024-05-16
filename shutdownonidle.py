@@ -16,7 +16,7 @@ ACTION_SUSPEND = "suspend"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-formatter = logging.Formatter(fmt="%(asctime)s %(name)s.%(levelname)s: %(message)s", datefmt="%Y.%m.%d %H:%M:%S")
+formatter = logging.Formatter(fmt="%(levelname)s: %(message)s", datefmt="%Y.%m.%d %H:%M:%S")
 handler = logging.StreamHandler(stream=sys.stdout)
 handler.setFormatter(formatter)
 logger.addHandler(handler)
@@ -96,19 +96,22 @@ def get_parser() -> argparse.ArgumentParser:
 
 
 def run(my_scheduler: sched.scheduler, state: IdleState, opts: argparse.ArgumentParser):
-    has_login = check_user_sessions()
-    has_smbsession = check_smbsessions()
-    if has_login or has_smbsession:
-        state.reset()
-        logger.info(f"Activity detected, resetting idle counter {state.count}: active login session = {has_login}, active SMB session = {has_smbsession}")
-    else:
-        state.increment()
-        logger.info(f"No activity detected, incrementing idle counter {state.count}: active login session = {has_login}, active SMB session = {has_smbsession}")
+    try:
+        has_login = check_user_sessions()
+        has_smbsession = check_smbsessions()
+        if has_login or has_smbsession:
+            state.reset()
+            logger.info(f"Activity detected, resetting idle counter {state.count}: active login session = {has_login}, active SMB session = {has_smbsession}")
+        else:
+            state.increment()
+            logger.info(f"No activity detected, incrementing idle counter {state.count}: active login session = {has_login}, active SMB session = {has_smbsession}")
 
-    if state.count >= opts.threshold:
-        logger.info(f"Idle counter threshold reached {state.count} >= {opts.threshold}: running on_idle action")
-        on_idle(opts.action)
-    my_scheduler.enter(opts.interval, DEFAULT_PRIORITY, run, (my_scheduler, state))
+        if state.count >= opts.threshold:
+            logger.info(f"Idle counter threshold reached {state.count} >= {opts.threshold}: running on_idle action")
+            on_idle(opts.action)
+        my_scheduler.enter(opts.interval, DEFAULT_PRIORITY, run, (my_scheduler, state, opts))
+    except Exception:
+        logger.exception("Error occurred trying to check the idle state.")
 
 
 def on_idle(action: str) -> None:
