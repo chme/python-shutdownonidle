@@ -7,6 +7,12 @@ import sched
 import subprocess
 import sys
 import time
+import typing
+import urllib.error
+import urllib.parse
+import urllib.request
+
+from email.message import Message
 
 
 DEFAULT_INTERVAL_SECONDS = 60
@@ -49,6 +55,9 @@ def main(args: list[str] | None = None) -> int:
     """
     parser = get_parser()
     opts = parser.parse_args(args=args)
+
+    if opts.verbose:
+        logger.setLevel(logging.DEBUG)
     logger.info("Arguments: %s", opts)
 
     state = IdleState()
@@ -88,6 +97,7 @@ def get_parser() -> argparse.ArgumentParser:
             - session: Checks that no user session exists (uses the "who" command).
             - smb: Checks that no SMB session exists (uses the "smbstatus" command).
             - files: Checks that a given list of files were not modified between two runs (uses the files mtime).
+            - owntone: Checks if OwnTone is not playing and no library scan is running (requires setting the "owntone-url").
 
             If no check are set via the CLI argument, only the "session" check will be performed.
             """
@@ -141,6 +151,13 @@ def get_parser() -> argparse.ArgumentParser:
         "Default: session.",
     )
     parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        dest="verbose",
+        help="Enable verbose logging.",
+    )
+    parser.add_argument(
         "-f",
         "--file",
         action="store",
@@ -150,6 +167,14 @@ def get_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         dest="files",
         help="Check the FILE(s) modification timestamp to determine if the system is idle or not.",
+    )
+    parser.add_argument(
+        "--owntone-url",
+        action="store",
+        required=False,
+        metavar="OWNTONE_URL",
+        dest="owntone_url",
+        help="URL of the OwnTone server to check player and library state.",
     )
     return parser
 
@@ -204,6 +229,15 @@ def run_checks(state: IdleState, opts: argparse.Namespace) -> tuple[list[str], l
                 break
             else:
                 inactive.append(check)
+        elif check == "owntone":
+            skipped.remove(check)
+            if check_owntone(opts):
+                active.append(check)
+                break
+            else:
+                inactive.append(check)
+        else:
+            logger.warn("Ignoring unsupported check: %s", check)
     return active, inactive, skipped
 
 
@@ -235,6 +269,135 @@ def check_files(state: IdleState, opts: argparse.Namespace) -> bool:
             return True
     return False
 
+
+def check_owntone(opts: argparse.Namespace) -> bool:
+    return _check_owntone_playing(opts) or _check_owntone_scanning(opts)
+
+
+def _check_owntone_playing(opts: argparse.Namespace) -> bool:
+    url = f"{opts.owntone_url}/api/player"
+    logger.debug("owntone: Get player state: %s", url)
+    response = request(url)
+    logger.debug("owntone: Player state response: %s", response)
+    if response.status == 200:
+        json_response = response.json()
+        return json_response.get("state", "") == "play"
+    return False
+
+
+def _check_owntone_scanning(opts: argparse.Namespace) -> bool:
+    url = f"{opts.owntone_url}/api/library"
+    logger.debug("owntone: Get library state: %s", url)
+    response = request(url)
+    logger.debug("owntone: Library state response: %s", response)
+    if response.status == 200:
+        json_response = response.json()
+        return json_response.get("updating", False)
+    return False
+
+
+class Response(typing.NamedTuple):
+    """Container for HTTP response."""
+
+    body: str
+    headers: Message
+    status: int
+    error_count: int = 0
+
+    def json(self) -> typing.Any:
+        """
+        Decode body's JSON.
+
+        Returns:
+            Pythonic representation of the JSON object
+        """
+        try:
+            output = json.loads(self.body)
+        except json.JSONDecodeError:
+            output = ""
+        return output
+
+
+def request(
+    url: str,
+    data: dict = None,
+    params: dict = None,
+    headers: dict = None,
+    method: str = "GET",
+    data_as_json: bool = True,
+    error_count: int = 0,
+) -> Response:
+    """
+    Perform HTTP request.
+
+    Args:
+        url: url to fetch
+        data: dict of keys/values to be encoded and submitted
+        params: dict of keys/values to be encoded in URL query string
+        headers: optional dict of request headers
+        method: HTTP method , such as GET or POST
+        data_as_json: if True, data will be JSON-encoded
+        error_count: optional current count of HTTP errors, to manage recursion
+
+    Raises:
+        URLError: if url starts with anything other than "http"
+
+    Returns:
+        A dict with headers, body, status code, and, if applicable, object
+        rendered from JSON
+    """
+    if not url.startswith("http"):
+        raise urllib.error.URLError("Incorrect and possibly insecure protocol in url")
+    method = method.upper()
+    request_data = None
+    headers = headers or {}
+    data = data or {}
+    params = params or {}
+    headers = {"Accept": "application/json", **headers}
+
+    if method == "GET":
+        params = {**params, **data}
+        data = None
+
+    if params:
+        url += "?" + urllib.parse.urlencode(params, doseq=True, safe="/")
+
+    if data:
+        if data_as_json:
+            request_data = json.dumps(data).encode()
+            headers["Content-Type"] = "application/json; charset=UTF-8"
+        else:
+            request_data = urllib.parse.urlencode(data).encode()
+
+    httprequest = urllib.request.Request(
+        url, data=request_data, headers=headers, method=method
+    )
+
+    try:
+        with urllib.request.urlopen(httprequest) as httpresponse:
+            response = Response(
+                headers=httpresponse.headers,
+                status=httpresponse.status,
+                body=httpresponse.read().decode(
+                    httpresponse.headers.get_content_charset("utf-8")
+                ),
+            )
+    except urllib.error.HTTPError as e:
+        response = Response(
+            body=str(e.reason),
+            headers=e.headers,
+            status=e.code,
+            error_count=error_count + 1,
+        )
+    except urllib.error.URLError as e:
+        response = Response(
+            body=str(e.reason),
+            headers=None,
+            status=999,
+            error_count=error_count + 1,
+        )
+
+    return response
 
 
 def exec(command: str, *args: str) -> str:
