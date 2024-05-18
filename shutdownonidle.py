@@ -108,6 +108,7 @@ def run(my_scheduler: sched.scheduler, state: IdleState, opts: argparse.Argument
 
         if state.count >= opts.threshold:
             logger.info(f"Idle counter threshold reached {state.count} >= {opts.threshold}: running on_idle action")
+            state.reset()
             on_idle(opts.action)
         my_scheduler.enter(opts.interval, DEFAULT_PRIORITY, run, (my_scheduler, state, opts))
     except Exception:
