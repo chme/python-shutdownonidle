@@ -1,39 +1,73 @@
 # Shutdown on idle
 
-Utility script to check if a system is idle.
+shutdownonidle: Idle System Checker and Shutdown Utility
 
-When running this script as a daemon process, it will periodically run 
-checks to identify if the system is idle. When a set number of consecutive 
-runs indicate no activity, the system is deemed idle.
-The script will then initiate a shutdown or a suspend.
+This utility script monitors system activity to determine if
+the system is idle. When running as a daemon, it periodically
+performs checks. If a configured number of consecutive checks
+indicate no activity, the system is considered idle. Depending
+on the configured action, the script can then initiate a
+shutdown or suspend the system.
 
-__Checks__
+## Available Actions
 
-To determin if a system is idle, different checks can be enabled:
+The following actions are available when the system is deemed idle:
 
-- session: Checks that no user session exists (uses the "who" command).
-- smb: Checks that no SMB session exists (uses the "smbstatus" command).
-- files: Checks that a given list of files were not modified between two runs (uses the files mtime).
-- owntone: Checks if OwnTone is not playing and no library scan is running (requires setting the "owntone-url").
+- `shutdown`: Shuts down the system.
+- `suspend`: Suspends the system.
+- `noop`: Performs no action. Useful for testing and debugging.
 
-If no check are set via the CLI argument, only the "session" check will be performed.
+## Available Checks
 
-```
-usage: shutdownonidle [-h] [-i INTERVAL_SECONDS] [-t IDLE_THRESHOLD] [-a ACTION] [-c CHECK] [-v] [-f [FILE ...]] [--owntone-url OWNTONE_URL]
+Various checks can be enabled to determine system idleness:
+
+- `session`: Verifies that no active user sessions exist using
+    the `who` command.
+- `smb`: Confirms that no active SMB sessions exist by utilizing
+    the `smbstatus` command.
+- `files`: Checks if a specified list of files has remained
+    unmodified between consecutive runs, based on their
+    modification time (mtime).
+- `owntone`: Monitors the OwnTone server to ensure it is neither
+    playing audio nor scanning the library. This check requires
+    the `--owntone-url` option to be set.
+
+Default Behavior: If no checks are explicitly specified, only the session check will be performed.
+
+``` bash
+usage: shutdownonidle [-h] [-i INTERVAL_SECONDS] [-t IDLE_THRESHOLD] [-a ACTION] [-c CHECK] [-v] [-f [FILE ...]] [--owntone-url OWNTONE_URL] [-r]
 
 options:
   -h, --help            show this help message and exit
-  -i INTERVAL_SECONDS, --interval INTERVAL_SECONDS
-                        Specifies the time interval in seconds for checking if the system is idle. Default: 60.
-  -t IDLE_THRESHOLD, --threshold IDLE_THRESHOLD
-                        Specifies number of consecutive checks after which the system is considered as idle. Default: 5.
-  -a ACTION, --action ACTION
-                        Action to perform, when the system is considered idle. Supported values: shutdown, suspend, noop. Default: shutdown.
-  -c CHECK, --checks CHECK
-                        A comma-separated list of checks to perform, in order to identify if the system is idle or not. See available checks in the description. Default: session.
+  -i, --interval INTERVAL_SECONDS
+                        Sets the time interval (in seconds) between consecutive idle checks. Default: 60.
+  -t, --threshold IDLE_THRESHOLD
+                        Specifies the number of consecutive idle checks required to declare the system idle. Default: 5.
+  -a, --action ACTION   Defines the action to take when the system is deemed idle. Supported values: shutdown, suspend, noop. Default: shutdown.
+  -c, --checks CHECK    Provides a comma-separated list of checks to determine system idleness. See "Available Checks" for details. Default: session.
   -v, --verbose         Enable verbose logging.
-  -f [FILE ...], --file [FILE ...]
-                        Check the FILE(s) modification timestamp to determine if the system is idle or not.
+  -f, --file [FILE ...]
+                        Monitors the modification timestamps of the specified FILE(s) to check for activity.
   --owntone-url OWNTONE_URL
-                        URL of the OwnTone server to check player and library state.
+                        Specifies the URL of the OwnTone server for monitoring playback and library status.
+  -r, --reboot-if-required
+                        Allows the system to reboot if a reboot is required. This is triggered by the presence of the file `/var/run/reboot-required`. Note: This option is effective
+                        only when the action is set to `suspend`
+```
+
+## Example systemd service file
+
+``` properties
+[Unit]
+Description=Shutdown on idle
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/shutdownonidle
+ExecStart=/usr/bin/python3 /opt/shutdownonidle/shutdownonidle.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
 ```
