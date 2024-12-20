@@ -239,12 +239,12 @@ class ShutdownOnIdle:
             active, inactive, skipped = self.run_checks(state, opts)
             if active:
                 state.reset()
-                logger.info(
+                logger.debug(
                     f"Activity detected, resetting idle counter {state.count}/{opts.threshold}: active = {active}, inactive = {inactive}, skipped = {skipped}"
                 )
             else:
                 state.increment()
-                logger.info(
+                logger.debug(
                     f"No activity detected, incrementing idle counter {state.count}/{opts.threshold}: active = {active}, inactive = {inactive}, skipped = {skipped}"
                 )
 
@@ -368,7 +368,7 @@ class ShutdownOnIdle:
         """
         logger.debug("Executing command %s with arg = %s", command, args)
         start_time = time.time()
-        output = self._exec(command, args)
+        output = self._exec(command, *args)
         end_time = time.time()
         duration = end_time - start_time
         logger.debug(
