@@ -75,6 +75,7 @@ class IdleState:
 
 class ShutdownOnIdle:
     def __init__(self):
+        self.reboot_required_file = "/var/run/reboot-required"
         self.state = IdleState()
 
     def main(self, args: list[str] | None = None) -> int:
@@ -305,12 +306,13 @@ class ShutdownOnIdle:
         action = opts.action
         if action == ACTION_SUSPEND and opts.reboot and self.check_reboot_required():
             action = ACTION_REBOOT
+        logger.info("Running idle action '%s'", action)
         args = ACTIONS.get(action)
         if args:
             self.exec(*args)
 
     def check_reboot_required(self) -> bool:
-        return os.path.isfile("/var/run/reboot-required")
+        return os.path.isfile(self.reboot_required_file)
 
     def check_user_sessions(self) -> bool:
         output = self.exec("who", "-s")

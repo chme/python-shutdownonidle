@@ -1,7 +1,13 @@
 import tempfile
 import unittest
 
-from shutdownonidle import ACTION_SHUTDOWN, ACTIONS, ShutdownOnIdle
+from shutdownonidle import (
+    ACTION_REBOOT,
+    ACTION_SHUTDOWN,
+    ACTION_SUSPEND,
+    ACTIONS,
+    ShutdownOnIdle,
+)
 
 
 class MyShutdownOnIdle(ShutdownOnIdle):
@@ -16,7 +22,7 @@ class MyShutdownOnIdle(ShutdownOnIdle):
         return out
 
 
-class TestStringMethods(unittest.TestCase):
+class TestShutdownOnIdle(unittest.TestCase):
     def setUp(self):
         self.under_test = MyShutdownOnIdle()
 
@@ -92,6 +98,58 @@ class TestStringMethods(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertIdleCount(1)
             self.assertOnIdleAction(ACTION_SHUTDOWN)
+
+    def test_no_reboot_required(self):
+        # arrange
+        self.with_command("testuser")  # session
+        self.with_command("")  # session
+        self.with_command("")  # shutdown
+
+        # act
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            self.under_test.reboot_required_file = f"{tmp_dir}/non-existant-file"
+            exit_code = self.execute(
+                "--interval",
+                "1",
+                "--threshold",
+                "1",
+                "--checks",
+                "session",
+                "--action",
+                "suspend",
+                "--reboot-if-required",
+            )
+
+            # assert
+            self.assertEqual(exit_code, 0)
+            self.assertIdleCount(1)
+            self.assertOnIdleAction(ACTION_SUSPEND)
+
+    def test_reboot_required(self):
+        # arrange
+        self.with_command("testuser")  # session
+        self.with_command("")  # session
+        self.with_command("")  # shutdown
+
+        # act
+        with tempfile.NamedTemporaryFile() as fp:
+            self.under_test.reboot_required_file = fp.name
+            exit_code = self.execute(
+                "--interval",
+                "1",
+                "--threshold",
+                "1",
+                "--checks",
+                "session",
+                "--action",
+                "suspend",
+                "--reboot-if-required",
+            )
+
+            # assert
+            self.assertEqual(exit_code, 0)
+            self.assertIdleCount(1)
+            self.assertOnIdleAction(ACTION_REBOOT)
 
 
 if __name__ == "__main__":
